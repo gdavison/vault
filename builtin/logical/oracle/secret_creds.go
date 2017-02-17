@@ -125,84 +125,44 @@ func (b *backend) secretCredsRevoke(
 		return nil, err
 	}
 
-	switch revocationSQL {
+	// Start a transaction
+	b.logger.Trace("oracle/secretCredsRevoke: starting transaction")
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		b.logger.Trace("oracle/secretCredsRevoke: rolling back transaction")
+		tx.Rollback()
+	}()
 
-	// This is the default revocation logic. If revocation SQL is provided it
-	// is simply executed as-is.
-	case "":
-		// Start a transaction
-		b.logger.Trace("oracle/secretCredsRevoke: starting transaction")
-		tx, err := db.Begin()
+	// Execute each query
+	for _, query := range strutil.ParseArbitraryStringSlice(revocationSQL, ";") {
+		query = strings.TrimSpace(query)
+		if len(query) == 0 {
+			continue
+		}
+
+		b.logger.Trace("oracle/secretCredsRevoke: preparing statement")
+		b.logger.Trace("foo", "Query", query)
+		b.logger.Trace("foo", "name", username)
+		stmt, err := tx.Prepare(Query(query, map[string]string{
+			"name": username,
+		}))
 		if err != nil {
 			return nil, err
 		}
-		defer func() {
-			b.logger.Trace("oracle/secretCredsRevoke: rolling back transaction")
-			tx.Rollback()
-		}()
-
-		// Execute each query
-		for _, query := range strutil.ParseArbitraryStringSlice(defaultRevocationSQL, ";") {
-			query = strings.TrimSpace(query)
-			if len(query) == 0 {
-				continue
-			}
-
-			b.logger.Trace("oracle/secretCredsRevoke: preparing statement")
-			b.logger.Trace("foo", "Query", query)
-			b.logger.Trace("foo", "name", username)
-			stmt, err := tx.Prepare(Query(query, map[string]string{
-				"name": username,
-			}))
-			if err != nil {
-				return nil, err
-			}
-			defer stmt.Close()
-			b.logger.Trace("oracle/secretCredsRevoke: executing statement")
-			if _, err := stmt.Exec(); err != nil {
-				return nil, err
-			}
-		}
-
-		// Commit the transaction
-
-		b.logger.Trace("oracle/secretCredsRevoke: committing transaction")
-		if err := tx.Commit(); err != nil {
+		defer stmt.Close()
+		b.logger.Trace("oracle/secretCredsRevoke: executing statement")
+		if _, err := stmt.Exec(); err != nil {
 			return nil, err
 		}
+	}
 
-	// We have revocation SQL, execute directly, within a transaction
-	default:
-		tx, err := db.Begin()
-		if err != nil {
-			return nil, err
-		}
-		defer func() {
-			tx.Rollback()
-		}()
-
-		for _, query := range strutil.ParseArbitraryStringSlice(revocationSQL, ";") {
-			query = strings.TrimSpace(query)
-			if len(query) == 0 {
-				continue
-			}
-
-			stmt, err := tx.Prepare(Query(query, map[string]string{
-				"name": username,
-			}))
-			if err != nil {
-				return nil, err
-			}
-			defer stmt.Close()
-
-			if _, err := stmt.Exec(); err != nil {
-				return nil, err
-			}
-		}
-
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
+	// Commit the transaction
+	b.logger.Trace("oracle/secretCredsRevoke: committing transaction")
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 
 	return resp, nil
