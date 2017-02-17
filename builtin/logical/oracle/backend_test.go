@@ -138,6 +138,32 @@ func TestBackend_basic(t *testing.T) {
 	})
 }
 
+func TestBackend_basic_withRevocationSQL(t *testing.T) {
+	config := logical.TestBackendConfig()
+	config.StorageView = &logical.InmemStorage{}
+	b, err := Factory(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resource, connURL := prepareTestContainer(t, config.StorageView, b)
+	if resource != nil {
+		defer cleanupTestContainer(t, resource)
+	}
+	connData := map[string]interface{}{
+		"connection_url": connURL,
+	}
+
+	logicaltest.Test(t, logicaltest.TestCase{
+		Backend: b,
+		Steps: []logicaltest.TestStep{
+			testAccStepConfig(t, connData, false),
+			testAccStepCreateRoleWithRevocationSQL(t, "web", testRole, revocationSQL, false),
+			testAccStepReadCreds(t, b, config.StorageView, "web", connURL),
+		},
+	})
+}
+
 func TestBackend_roleCrud(t *testing.T) {
 	config := logical.TestBackendConfig()
 	config.StorageView = &logical.InmemStorage{}
@@ -304,17 +330,17 @@ func testAccStepCreateRole(t *testing.T, name string, sql string, expectFail boo
 	}
 }
 
-////func testAccStepCreateRoleWithRevocationSQL(t *testing.T, name, sql, revocationSQL string, expectFail bool) logicaltest.TestStep {
-////	return logicaltest.TestStep{
-////		Operation: logical.UpdateOperation,
-////		Path:      path.Join("roles", name),
-////		Data: map[string]interface{}{
-////			"sql":            sql,
-////			"revocation_sql": revocationSQL,
-////		},
-////		ErrorOk: expectFail,
-////	}
-////}
+func testAccStepCreateRoleWithRevocationSQL(t *testing.T, name, sql, revocationSQL string, expectFail bool) logicaltest.TestStep {
+	return logicaltest.TestStep{
+		Operation: logical.UpdateOperation,
+		Path:      path.Join("roles", name),
+		Data: map[string]interface{}{
+			"sql":            sql,
+			"revocation_sql": revocationSQL,
+		},
+		ErrorOk: expectFail,
+	}
+}
 
 func testAccStepDeleteRole(t *testing.T, name string) logicaltest.TestStep {
 	return logicaltest.TestStep{
@@ -539,11 +565,8 @@ GRANT CREATE SESSION TO {{name}};
 ////	`ALTER ROLE "{{name}}" SET search_path = foo;`,
 ////	`GRANT CONNECT ON DATABASE "postgres" TO "{{name}}";`,
 ////}
-////
-////const defaultRevocationSQL = `
-////REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM {{name}};
-////REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM {{name}};
-////REVOKE USAGE ON SCHEMA public FROM {{name}};
-////
-////DROP ROLE IF EXISTS {{name}};
-////`
+
+const revocationSQL = `
+REVOKE CONNECT FROM {{name}};
+DROP USER {{name}};
+`
