@@ -138,34 +138,34 @@ func TestBackend_basic(t *testing.T) {
 	})
 }
 
-////func TestBackend_roleCrud(t *testing.T) {
-////	config := logical.TestBackendConfig()
-////	config.StorageView = &logical.InmemStorage{}
-////	b, err := Factory(config)
-////	if err != nil {
-////		t.Fatal(err)
-////	}
-////
-////	cid, connURL := prepareTestContainer(t, config.StorageView, b)
-////	if cid != "" {
-////		defer cleanupTestContainer(t, cid)
-////	}
-////	connData := map[string]interface{}{
-////		"connection_url": connURL,
-////	}
-////
-////	logicaltest.Test(t, logicaltest.TestCase{
-////		Backend: b,
-////		Steps: []logicaltest.TestStep{
-////			testAccStepConfig(t, connData, false),
-////			testAccStepCreateRole(t, "web", testRole, false),
-////			testAccStepReadRole(t, "web", testRole),
-////			testAccStepDeleteRole(t, "web"),
-////			testAccStepReadRole(t, "web", ""),
-////		},
-////	})
-////}
-////
+func TestBackend_roleCrud(t *testing.T) {
+	config := logical.TestBackendConfig()
+	config.StorageView = &logical.InmemStorage{}
+	b, err := Factory(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resource, connURL := prepareTestContainer(t, config.StorageView, b)
+	if resource != nil {
+		defer cleanupTestContainer(t, resource)
+	}
+	connData := map[string]interface{}{
+		"connection_url": connURL,
+	}
+
+	logicaltest.Test(t, logicaltest.TestCase{
+		Backend: b,
+		Steps: []logicaltest.TestStep{
+			testAccStepConfig(t, connData, false),
+			testAccStepCreateRole(t, "web", testRole, false),
+			testAccStepReadRole(t, "web", testRole),
+			testAccStepDeleteRole(t, "web"),
+			testAccStepReadRole(t, "web", ""),
+		},
+	})
+}
+
 ////func TestBackend_BlockStatements(t *testing.T) {
 ////	config := logical.TestBackendConfig()
 ////	config.StorageView = &logical.InmemStorage{}
@@ -315,13 +315,13 @@ func testAccStepCreateRole(t *testing.T, name string, sql string, expectFail boo
 ////		ErrorOk: expectFail,
 ////	}
 ////}
-////
-////func testAccStepDeleteRole(t *testing.T, name string) logicaltest.TestStep {
-////	return logicaltest.TestStep{
-////		Operation: logical.DeleteOperation,
-////		Path:      path.Join("roles", name),
-////	}
-////}
+
+func testAccStepDeleteRole(t *testing.T, name string) logicaltest.TestStep {
+	return logicaltest.TestStep{
+		Operation: logical.DeleteOperation,
+		Path:      path.Join("roles", name),
+	}
+}
 
 func testAccStepReadCreds(t *testing.T, b logical.Backend, s logical.Storage, name string, connURL string) logicaltest.TestStep {
 	return logicaltest.TestStep{
@@ -450,35 +450,35 @@ func testAccStepReadCreds(t *testing.T, b logical.Backend, s logical.Storage, na
 ////		},
 ////	}
 ////}
-////
-////func testAccStepReadRole(t *testing.T, name string, sql string) logicaltest.TestStep {
-////	return logicaltest.TestStep{
-////		Operation: logical.ReadOperation,
-////		Path:      "roles/" + name,
-////		Check: func(resp *logical.Response) error {
-////			if resp == nil {
-////				if sql == "" {
-////					return nil
-////				}
-////
-////				return fmt.Errorf("bad: %#v", resp)
-////			}
-////
-////			var d struct {
-////				SQL string `mapstructure:"sql"`
-////			}
-////			if err := mapstructure.Decode(resp.Data, &d); err != nil {
-////				return err
-////			}
-////
-////			if d.SQL != sql {
-////				return fmt.Errorf("bad: %#v", resp)
-////			}
-////
-////			return nil
-////		},
-////	}
-////}
+
+func testAccStepReadRole(t *testing.T, name string, sql string) logicaltest.TestStep {
+	return logicaltest.TestStep{
+		Operation: logical.ReadOperation,
+		Path:      "roles/" + name,
+		Check: func(resp *logical.Response) error {
+			if resp == nil {
+				if sql == "" {
+					return nil
+				}
+
+				return fmt.Errorf("bad: %#v", resp)
+			}
+
+			var d struct {
+				SQL string `mapstructure:"sql"`
+			}
+			if err := mapstructure.Decode(resp.Data, &d); err != nil {
+				return err
+			}
+
+			if d.SQL != sql {
+				return fmt.Errorf("bad: %#v", resp)
+			}
+
+			return nil
+		},
+	}
+}
 
 const testRole = `
 CREATE USER {{name}} IDENTIFIED BY {{password}};
