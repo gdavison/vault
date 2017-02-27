@@ -10,12 +10,13 @@ import (
 	"reflect"
 	"sync"
 	"testing"
-	//	"time"
+	"time"
 
 	"github.com/hashicorp/vault/logical"
 	logicaltest "github.com/hashicorp/vault/logical/testing"
 	_ "github.com/mattn/go-oci8"
 	"github.com/mitchellh/mapstructure"
+	"github.com/tgulacsi/go/orahlp"
 	dockertest "gopkg.in/ory-am/dockertest.v3"
 )
 
@@ -192,103 +193,139 @@ func TestBackend_roleCrud(t *testing.T) {
 	})
 }
 
-////func TestBackend_BlockStatements(t *testing.T) {
-////	config := logical.TestBackendConfig()
-////	config.StorageView = &logical.InmemStorage{}
-////	b, err := Factory(config)
-////	if err != nil {
-////		t.Fatal(err)
-////	}
-////
-////	cid, connURL := prepareTestContainer(t, config.StorageView, b)
-////	if cid != "" {
-////		defer cleanupTestContainer(t, cid)
-////	}
-////	connData := map[string]interface{}{
-////		"connection_url": connURL,
-////	}
-////
-////	jsonBlockStatement, err := json.Marshal(testBlockStatementRoleSlice)
-////	if err != nil {
-////		t.Fatal(err)
-////	}
-////
-////	logicaltest.Test(t, logicaltest.TestCase{
-////		Backend: b,
-////		Steps: []logicaltest.TestStep{
-////			testAccStepConfig(t, connData, false),
-////			// This will also validate the query
-////			testAccStepCreateRole(t, "web-block", testBlockStatementRole, true),
-////			testAccStepCreateRole(t, "web-block", string(jsonBlockStatement), false),
-////		},
-////	})
-////}
-////
-////func TestBackend_roleReadOnly(t *testing.T) {
-////	config := logical.TestBackendConfig()
-////	config.StorageView = &logical.InmemStorage{}
-////	b, err := Factory(config)
-////	if err != nil {
-////		t.Fatal(err)
-////	}
-////
-////	cid, connURL := prepareTestContainer(t, config.StorageView, b)
-////	if cid != "" {
-////		defer cleanupTestContainer(t, cid)
-////	}
-////	connData := map[string]interface{}{
-////		"connection_url": connURL,
-////	}
-////
-////	logicaltest.Test(t, logicaltest.TestCase{
-////		Backend: b,
-////		Steps: []logicaltest.TestStep{
-////			testAccStepConfig(t, connData, false),
-////			testAccStepCreateRole(t, "web", testRole, false),
-////			testAccStepCreateRole(t, "web-readonly", testReadOnlyRole, false),
-////			testAccStepReadRole(t, "web-readonly", testReadOnlyRole),
-////			testAccStepCreateTable(t, b, config.StorageView, "web", connURL),
-////			testAccStepReadCreds(t, b, config.StorageView, "web-readonly", connURL),
-////			testAccStepDropTable(t, b, config.StorageView, "web", connURL),
-////			testAccStepDeleteRole(t, "web-readonly"),
-////			testAccStepDeleteRole(t, "web"),
-////			testAccStepReadRole(t, "web-readonly", ""),
-////		},
-////	})
-////}
-////
-////func TestBackend_roleReadOnly_revocationSQL(t *testing.T) {
-////	config := logical.TestBackendConfig()
-////	config.StorageView = &logical.InmemStorage{}
-////	b, err := Factory(config)
-////	if err != nil {
-////		t.Fatal(err)
-////	}
-////
-////	cid, connURL := prepareTestContainer(t, config.StorageView, b)
-////	if cid != "" {
-////		defer cleanupTestContainer(t, cid)
-////	}
-////	connData := map[string]interface{}{
-////		"connection_url": connURL,
-////	}
-////
-////	logicaltest.Test(t, logicaltest.TestCase{
-////		Backend: b,
-////		Steps: []logicaltest.TestStep{
-////			testAccStepConfig(t, connData, false),
-////			testAccStepCreateRoleWithRevocationSQL(t, "web", testRole, defaultRevocationSQL, false),
-////			testAccStepCreateRoleWithRevocationSQL(t, "web-readonly", testReadOnlyRole, defaultRevocationSQL, false),
-////			testAccStepReadRole(t, "web-readonly", testReadOnlyRole),
-////			testAccStepCreateTable(t, b, config.StorageView, "web", connURL),
-////			testAccStepReadCreds(t, b, config.StorageView, "web-readonly", connURL),
-////			testAccStepDropTable(t, b, config.StorageView, "web", connURL),
-////			testAccStepDeleteRole(t, "web-readonly"),
-////			testAccStepDeleteRole(t, "web"),
-////			testAccStepReadRole(t, "web-readonly", ""),
-////		},
-////	})
-////}
+func TestBackend_renew_revoke(t *testing.T) {
+	config := logical.TestBackendConfig()
+	config.StorageView = &logical.InmemStorage{}
+	b, err := Factory(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resource, connURL := prepareTestContainer(t, config.StorageView, b)
+	if resource != nil {
+		defer cleanupTestContainer(t, resource)
+	}
+	connData := map[string]interface{}{
+		"connection_url": connURL,
+	}
+
+	req := &logical.Request{
+		Storage:   config.StorageView,
+		Operation: logical.UpdateOperation,
+		Path:      "config/connection",
+		Data:      connData,
+	}
+	resp, err := b.HandleRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req.Path = path.Join("config/lease")
+	req.Data = map[string]interface{}{
+		"lease":     "1h",
+		"lease_max": "24h",
+	}
+	resp, err = b.HandleRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	roleName := "test"
+
+	req.Path = path.Join("roles", roleName)
+	req.Data = map[string]interface{}{
+		"sql": testRole,
+	}
+	resp, err = b.HandleRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req.Operation = logical.ReadOperation
+	req.Path = path.Join("creds", roleName)
+	req.DisplayName = "foobar"
+	resp, err = b.HandleRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp == nil {
+		t.Fatal("resp nil")
+	}
+	if resp.IsError() {
+		t.Fatalf("resp is error: %v", resp.Error())
+	}
+
+	var d struct {
+		Username string `mapstructure:"username"`
+		Password string `mapstructure:"password"`
+	}
+	if err := mapstructure.Decode(resp.Data, &d); err != nil {
+		t.Fatal(err)
+	}
+	log.Printf("[TRACE] Generated credentials: %v", d)
+	log.Printf("[TRACE] Secret: %v", resp.Secret)
+
+	// Build a client and verify that the credentials work
+	username, password, link := orahlp.SplitDSN(connURL)
+	log.Printf("[TRACE] username: %s, password: %s, link: %s.", username, password, link)
+
+	conn := fmt.Sprintf("%s/%s@%s", d.Username, d.Password, link)
+	log.Printf("[TRACE] conn: %s.", conn)
+	db, err := sql.Open("oci8", conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	resp, err = b.HandleRequest(&logical.Request{
+		Operation: logical.RenewOperation,
+		Storage:   config.StorageView,
+		Secret: &logical.Secret{
+			LeaseOptions: logical.LeaseOptions{
+				TTL:       1 * time.Hour,
+				IssueTime: time.Now(),
+			},
+			InternalData: map[string]interface{}{
+				"secret_type": "creds",
+				"username":    d.Username,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp != nil {
+		if resp.IsError() {
+			t.Fatal("Error on renew: %#v", *resp)
+		}
+	}
+
+	resp, err = b.HandleRequest(&logical.Request{
+		Operation: logical.RevokeOperation,
+		Storage:   config.StorageView,
+		Secret: &logical.Secret{
+			InternalData: map[string]interface{}{
+				"secret_type": "creds",
+				"username":    d.Username,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp != nil {
+		if resp.IsError() {
+			t.Fatal("Error on revoke: %#v", *resp)
+		}
+	}
+
+	log.Printf("[TRACE] conn: %s.", conn)
+	db, err = sql.Open("oci8", conn)
+	if err != nil {
+		t.Fatal("expected failure to connect after revocation")
+	}
+	db.Close()
+}
 
 func testAccStepConfig(t *testing.T, d map[string]interface{}, expectError bool) logicaltest.TestStep {
 	return logicaltest.TestStep{
@@ -367,61 +404,6 @@ func testAccStepReadCreds(t *testing.T, b logical.Backend, s logical.Storage, na
 	}
 }
 
-////func testAccStepCreateTable(t *testing.T, b logical.Backend, s logical.Storage, name string, connURL string) logicaltest.TestStep {
-////	return logicaltest.TestStep{
-////		Operation: logical.ReadOperation,
-////		Path:      path.Join("creds", name),
-////		Check: func(resp *logical.Response) error {
-////			var d struct {
-////				Username string `mapstructure:"username"`
-////				Password string `mapstructure:"password"`
-////			}
-////			if err := mapstructure.Decode(resp.Data, &d); err != nil {
-////				return err
-////			}
-////			log.Printf("[TRACE] Generated credentials: %v", d)
-////			conn, err := pq.ParseURL(connURL)
-////
-////			if err != nil {
-////				t.Fatal(err)
-////			}
-////
-////			conn += " timezone=utc"
-////
-////			db, err := sql.Open("postgres", conn)
-////			if err != nil {
-////				t.Fatal(err)
-////			}
-////
-////			_, err = db.Exec("CREATE TABLE test (id SERIAL PRIMARY KEY);")
-////			if err != nil {
-////				t.Fatal(err)
-////			}
-////
-////			resp, err = b.HandleRequest(&logical.Request{
-////				Operation: logical.RevokeOperation,
-////				Storage:   s,
-////				Secret: &logical.Secret{
-////					InternalData: map[string]interface{}{
-////						"secret_type": "creds",
-////						"username":    d.Username,
-////					},
-////				},
-////			})
-////			if err != nil {
-////				return err
-////			}
-////			if resp != nil {
-////				if resp.IsError() {
-////					return fmt.Errorf("Error on resp: %#v", *resp)
-////				}
-////			}
-////
-////			return nil
-////		},
-////	}
-////}
-////
 ////func testAccStepDropTable(t *testing.T, b logical.Backend, s logical.Storage, name string, connURL string) logicaltest.TestStep {
 ////	return logicaltest.TestStep{
 ////		Operation: logical.ReadOperation,
@@ -568,5 +550,6 @@ GRANT CREATE SESSION TO {{name}};
 
 const revocationSQL = `
 REVOKE CONNECT FROM {{name}};
+REVOKE CREATE SESSION FROM {{name}};
 DROP USER {{name}};
 `
