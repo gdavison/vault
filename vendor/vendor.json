@@ -79,6 +79,20 @@
 			"revisionTime": "2012-06-04T00:48:16Z"
 		},
 		{
+			"checksumSHA1": "zTn0jzjOiJlScR1px66MvrgrlLs=",
+			"origin": "github.com/docker/docker/vendor/github.com/Microsoft/go-winio",
+			"path": "github.com/Microsoft/go-winio",
+			"revision": "8b6ae13c08ba9b649db463bbb92eade754df3e29",
+			"revisionTime": "2017-02-27T18:31:57Z"
+		},
+		{
+			"checksumSHA1": "X0zzilJqlP+bX0cJmF2UsXNGBY0=",
+			"origin": "github.com/docker/docker/vendor/github.com/Nvveen/Gotty",
+			"path": "github.com/Nvveen/Gotty",
+			"revision": "8b6ae13c08ba9b649db463bbb92eade754df3e29",
+			"revisionTime": "2017-02-27T18:31:57Z"
+		},
+		{
 			"checksumSHA1": "t+uej2kiyqRyQYguygI8t9nJH2w=",
 			"path": "github.com/SermoDigital/jose",
 			"revision": "2bd9b81ac51d6d6134fcd4fd846bd2e7347a15f9",
@@ -1003,6 +1017,12 @@
 			"revisionTime": "2017-02-24T12:24:59Z"
 		},
 		{
+			"checksumSHA1": "0xjvz/KGzXhAFsnDRvzofE0xNzI=",
+			"path": "github.com/kylelemons/godebug/diff",
+			"revision": "d99083b96f422f8fd5a93bc02040acec769e178f",
+			"revisionTime": "2016-11-09T21:01:02Z"
+		},
+		{
 			"checksumSHA1": "FZem1OXCd+ogu1yeG11GMlGiGVA=",
 			"path": "github.com/lib/pq",
 			"revision": "ba5d4f7a35561e22fbdf7a39aa0070f4d460cfc0",
@@ -1025,6 +1045,12 @@
 			"path": "github.com/mattn/go-isatty",
 			"revision": "dda3de49cbfcec471bd7a70e6cc01fcc3ff90109",
 			"revisionTime": "2017-02-16T23:59:08Z"
+		},
+		{
+			"checksumSHA1": "v90YcLy/mWxsHYC0ndbIBqGKibY=",
+			"path": "github.com/mattn/go-oci8",
+			"revision": "52120e18d58a9c88c3fff9aa6ed86251777f52e6",
+			"revisionTime": "2017-01-07T11:21:30Z"
 		},
 		{
 			"checksumSHA1": "CIK3BBNX3nuUQCmNqTQydNfMNKI=",
@@ -1133,6 +1159,18 @@
 			"path": "github.com/sstarcher/go-okta",
 			"revision": "388b6aef4eed400621bd3e3a98d831ef1368582d",
 			"revisionTime": "2016-10-03T17:19:47Z"
+		},
+		{
+			"checksumSHA1": "9+lzNuZgiTslZioecbMjvvD9+jU=",
+			"path": "github.com/tgulacsi/go/dber",
+			"revision": "48b9ac1f4bd9620bdc4127be378b47c88d914cec",
+			"revisionTime": "2017-02-15T20:52:59Z"
+		},
+		{
+			"checksumSHA1": "ilXEbbKlJgQeeuh+vidJ3fkXRUI=",
+			"path": "github.com/tgulacsi/go/orahlp",
+			"revision": "48b9ac1f4bd9620bdc4127be378b47c88d914cec",
+			"revisionTime": "2017-02-15T20:52:59Z"
 		},
 		{
 			"checksumSHA1": "CoxdaTYdPZNJXr8mJfLxye428N0=",
