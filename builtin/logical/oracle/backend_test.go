@@ -48,7 +48,8 @@ func prepareTestContainer(t *testing.T, s logical.Storage, b logical.Backend) (r
 		t.Fatalf("Dammit, no port")
 	}
 
-	connURL := fmt.Sprintf("system/oracle@localhost:%s/xe", resource.GetPort("1521/tcp"))
+	connURL := fmt.Sprintf("system/oracle@localhost:%s/xe", port)
+	pool.MaxWait = time.Minute * 2
 	connErr := pool.Retry(func() error {
 		db, err := sql.Open("oci8", connURL)
 		if err != nil {
@@ -262,20 +263,23 @@ func TestBackend_renew_revoke(t *testing.T) {
 	if err := mapstructure.Decode(resp.Data, &d); err != nil {
 		t.Fatal(err)
 	}
-	log.Printf("[TRACE] Generated credentials: %v", d)
-	log.Printf("[TRACE] Secret: %v", resp.Secret)
 
 	// Build a client and verify that the credentials work
-	username, password, link := orahlp.SplitDSN(connURL)
-	log.Printf("[TRACE] username: %s, password: %s, link: %s.", username, password, link)
+	_, _, link := orahlp.SplitDSN(connURL)
 
 	conn := fmt.Sprintf("%s/%s@%s", d.Username, d.Password, link)
-	log.Printf("[TRACE] conn: %s.", conn)
+
+	// According to the database/sql specification, Open() is not guaranteed to connect
+	// to the database, but Ping() is. oci8 does currently, but test "properly" in case
+	// that changes.
 	db, err := sql.Open("oci8", conn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.Close()
+	err = db.Ping()
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	resp, err = b.HandleRequest(&logical.Request{
 		Operation: logical.RenewOperation,
@@ -319,12 +323,17 @@ func TestBackend_renew_revoke(t *testing.T) {
 		}
 	}
 
-	log.Printf("[TRACE] conn: %s.", conn)
-	db, err = sql.Open("oci8", conn)
-	if err != nil {
-		t.Fatal("expected failure to connect after revocation")
+	// According to the database/sql specification, Open() is not guaranteed to connect
+	// to the database, but Ping() is. oci8 does currently, but test "properly" in case
+	// that changes.
+	db2, err := sql.Open("oci8", conn)
+	if err == nil {
+		err = db2.Ping()
+		if err == nil {
+			t.Fatal("expected failure to connect after revocation")
+		}
 	}
-	db.Close()
+	db2.Close()
 }
 
 func testAccStepConfig(t *testing.T, d map[string]interface{}, expectError bool) logicaltest.TestStep {
@@ -403,61 +412,6 @@ func testAccStepReadCreds(t *testing.T, b logical.Backend, s logical.Storage, na
 		},
 	}
 }
-
-////func testAccStepDropTable(t *testing.T, b logical.Backend, s logical.Storage, name string, connURL string) logicaltest.TestStep {
-////	return logicaltest.TestStep{
-////		Operation: logical.ReadOperation,
-////		Path:      path.Join("creds", name),
-////		Check: func(resp *logical.Response) error {
-////			var d struct {
-////				Username string `mapstructure:"username"`
-////				Password string `mapstructure:"password"`
-////			}
-////			if err := mapstructure.Decode(resp.Data, &d); err != nil {
-////				return err
-////			}
-////			log.Printf("[TRACE] Generated credentials: %v", d)
-////			conn, err := pq.ParseURL(connURL)
-////
-////			if err != nil {
-////				t.Fatal(err)
-////			}
-////
-////			conn += " timezone=utc"
-////
-////			db, err := sql.Open("postgres", conn)
-////			if err != nil {
-////				t.Fatal(err)
-////			}
-////
-////			_, err = db.Exec("DROP TABLE test;")
-////			if err != nil {
-////				t.Fatal(err)
-////			}
-////
-////			resp, err = b.HandleRequest(&logical.Request{
-////				Operation: logical.RevokeOperation,
-////				Storage:   s,
-////				Secret: &logical.Secret{
-////					InternalData: map[string]interface{}{
-////						"secret_type": "creds",
-////						"username":    d.Username,
-////					},
-////				},
-////			})
-////			if err != nil {
-////				return err
-////			}
-////			if resp != nil {
-////				if resp.IsError() {
-////					return fmt.Errorf("Error on resp: %#v", *resp)
-////				}
-////			}
-////
-////			return nil
-////		},
-////	}
-////}
 
 func testAccStepReadRole(t *testing.T, name string, sql string) logicaltest.TestStep {
 	return logicaltest.TestStep{

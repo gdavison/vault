@@ -1,6 +1,7 @@
 package oracle
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -17,9 +18,7 @@ REVOKE CREATE SESSION FROM {{name}};
 DROP USER {{name}};
 `
 
-// without this statement, it doesn't close existing connections
-// but this statement isn't quite correct
-//select 'alter system kill session ''' || sid || ',' || serial# || ''';' from v$session where username = '{{name}}'
+const sessionSQL = `SELECT sid, serial#, username FROM v$session WHERE username = UPPER('{{name}}')`
 
 func secretCreds(b *backend) *framework.Secret {
 	return &framework.Secret{
@@ -64,7 +63,6 @@ func (b *backend) secretCredsRevoke(
 		return nil, fmt.Errorf("secret is missing username internal data")
 	}
 	username, ok := usernameRaw.(string)
-	b.logger.Trace("oracle/secretCredsRevoke", "username", username)
 
 	var resp *logical.Response
 
@@ -94,12 +92,42 @@ func (b *backend) secretCredsRevoke(
 		}
 		resp.AddWarning(fmt.Sprintf("Role %q cannot be found. Using default SQL for revoking user.", roleName))
 	}
-	b.logger.Trace("REVOCATION SQL", "sql", revocationSQL)
 
 	// Get our connection
 	db, err := b.DB(req.Storage)
 	if err != nil {
 		return nil, err
+	}
+
+	// Disconnect the session
+	disconnectStmt, err := db.Prepare(Query(sessionSQL, map[string]string{
+		"name": username,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	defer disconnectStmt.Close()
+	if rows, err := disconnectStmt.Query(); err != nil {
+		return nil, err
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var sessionId, serialNumber int
+			var username sql.NullString
+			err = rows.Scan(&sessionId, &serialNumber, &username)
+			if err != nil {
+				return nil, err
+			}
+			killStatement := fmt.Sprintf("ALTER SYSTEM KILL SESSION '%d,%d' IMMEDIATE", sessionId, serialNumber)
+			_, err = db.Exec(killStatement)
+			if err != nil {
+				return nil, err
+			}
+		}
+		err = rows.Err()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// We can't use a transaction here, because Oracle treats DROP USER as a DDL statement, which commits immediately.
@@ -110,7 +138,6 @@ func (b *backend) secretCredsRevoke(
 			continue
 		}
 
-		b.logger.Trace("oracle/secretCredsRevoke: preparing statement", "query", query, "name", username)
 		stmt, err := db.Prepare(Query(query, map[string]string{
 			"name": username,
 		}))
@@ -118,7 +145,6 @@ func (b *backend) secretCredsRevoke(
 			return nil, err
 		}
 		defer stmt.Close()
-		b.logger.Trace("oracle/secretCredsRevoke: executing statement")
 		if _, err := stmt.Exec(); err != nil {
 			return nil, err
 		}
