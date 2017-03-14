@@ -35,14 +35,6 @@ func pathRoles(b *backend) *framework.Path {
 				Type:        framework.TypeString,
 				Description: "SQL string to create a user. See help for more info.",
 			},
-
-			"revocation_sql": {
-				Type: framework.TypeString,
-				Description: `SQL statements to be executed to revoke a user. Must be a semicolon-separated
-string, a base64-encoded semicolon-separated string, a serialized JSON string
-array, or a base64-encoded serialized JSON string array. The '{{name}}' value
-will be substituted.`,
-			},
 		},
 
 		Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -95,8 +87,7 @@ func (b *backend) pathRoleRead(
 
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"sql":            role.SQL,
-			"revocation_sql": role.RevocationSQL,
+			"sql": role.SQL,
 		},
 	}, nil
 }
@@ -142,8 +133,7 @@ func (b *backend) pathRoleCreate(
 
 	// Store it
 	entry, err := logical.StorageEntryJSON("role/"+name, &roleEntry{
-		SQL:           sql,
-		RevocationSQL: data.Get("revocation_sql").(string),
+		SQL: sql,
 	})
 	if err != nil {
 		return nil, err
@@ -156,8 +146,7 @@ func (b *backend) pathRoleCreate(
 }
 
 type roleEntry struct {
-	SQL           string `json:"sql" mapstructure:"sql" structs:"sql"`
-	RevocationSQL string `json:"revocation_sql" mapstructure:"revocation_sql" structs:"revocation_sql"`
+	SQL string `json:"sql" mapstructure:"sql" structs:"sql"`
 }
 
 const pathRoleHelpSyn = `
@@ -178,20 +167,9 @@ by "{{" and "}}" to be replaced.
 
 Example of a decent SQL query to use:
 
-	CREATE ROLE "{{name}}" WITH
-	  LOGIN
-	  PASSWORD '{{password}}'
-	  VALID UNTIL '{{expiration}}';
-	GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "{{name}}";
+  CREATE USER {{name}} IDENTIFIED BY {{password}};
+  GRANT CONNECT TO {{name}};
+  GRANT CREATE SESSION TO {{name}};
 
-Note the above user would be able to access everything in schema public.
-For more complex GRANT clauses, see the PostgreSQL manual.
-
-The "revocation_sql" parameter customizes the SQL string used to revoke a user.
-Example of a decent revocation SQL query to use:
-
-	REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM {{name}};
-	REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM {{name}};
-	REVOKE USAGE ON SCHEMA public FROM {{name}};
-	DROP ROLE IF EXISTS {{name}};
+For more complex GRANT clauses, see the Oracle documentation.
 `

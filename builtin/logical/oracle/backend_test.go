@@ -2,7 +2,6 @@ package oracle
 
 import (
 	"database/sql"
-	//	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/hashicorp/vault/logical"
 	logicaltest "github.com/hashicorp/vault/logical/testing"
-	_ "github.com/mattn/go-oci8"
 	"github.com/mitchellh/mapstructure"
 	"github.com/tgulacsi/go/orahlp"
 	dockertest "gopkg.in/ory-am/dockertest.v3"
@@ -25,7 +23,7 @@ var (
 	pool       *dockertest.Pool
 )
 
-func prepareTestContainer(t *testing.T, s logical.Storage, b logical.Backend) (resource *dockertest.Resource, retURL string) {
+func prepareTestContainer(t *testing.T, s logical.Storage, b logical.Backend) (resource *dockertest.Resource, connString string) {
 	if os.Getenv("ORACLE_DSN") != "" {
 		return nil, os.Getenv("ORACLE_DSN")
 	}
@@ -41,17 +39,17 @@ func prepareTestContainer(t *testing.T, s logical.Storage, b logical.Backend) (r
 
 	resource, err := pool.Run("wnameless/oracle-xe-11g", "latest", []string{})
 	if err != nil {
-		t.Fatalf("can't container")
+		t.Fatalf("Unable to run container")
 	}
 	port := resource.GetPort("1521/tcp")
 	if port == "" {
-		t.Fatalf("Dammit, no port")
+		t.Fatalf("Unable to get port")
 	}
 
-	connURL := fmt.Sprintf("system/oracle@localhost:%s/xe", port)
+	connString = fmt.Sprintf("system/oracle@localhost:%s/xe", resource.GetPort("1521/tcp"))
 	pool.MaxWait = time.Minute * 2
 	connErr := pool.Retry(func() error {
-		db, err := sql.Open("oci8", connURL)
+		db, err := sql.Open("oci8", connString)
 		if err != nil {
 			return err
 		}
@@ -62,7 +60,6 @@ func prepareTestContainer(t *testing.T, s logical.Storage, b logical.Backend) (r
 		t.Fatalf("could not connect to database: %v", connErr)
 	}
 
-	retURL = connURL
 	return
 }
 
@@ -84,8 +81,7 @@ func TestBackend_config_connection(t *testing.T) {
 	}
 
 	configData := map[string]interface{}{
-		"connection_url":       "sample_connection_url",
-		"value":                "",
+		"connection_string":    "sample_connection_string",
 		"max_open_connections": 9,
 		"max_idle_connections": 7,
 		"verify_connection":    false,
@@ -122,12 +118,12 @@ func TestBackend_basic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource, connURL := prepareTestContainer(t, config.StorageView, b)
+	resource, connString := prepareTestContainer(t, config.StorageView, b)
 	if resource != nil {
 		defer cleanupTestContainer(t, resource)
 	}
 	connData := map[string]interface{}{
-		"connection_url": connURL,
+		"connection_string": connString,
 	}
 
 	logicaltest.Test(t, logicaltest.TestCase{
@@ -135,33 +131,7 @@ func TestBackend_basic(t *testing.T) {
 		Steps: []logicaltest.TestStep{
 			testAccStepConfig(t, connData, false),
 			testAccStepCreateRole(t, "web", testRole, false),
-			testAccStepReadCreds(t, b, config.StorageView, "web", connURL),
-		},
-	})
-}
-
-func TestBackend_basic_withRevocationSQL(t *testing.T) {
-	config := logical.TestBackendConfig()
-	config.StorageView = &logical.InmemStorage{}
-	b, err := Factory(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	resource, connURL := prepareTestContainer(t, config.StorageView, b)
-	if resource != nil {
-		defer cleanupTestContainer(t, resource)
-	}
-	connData := map[string]interface{}{
-		"connection_url": connURL,
-	}
-
-	logicaltest.Test(t, logicaltest.TestCase{
-		Backend: b,
-		Steps: []logicaltest.TestStep{
-			testAccStepConfig(t, connData, false),
-			testAccStepCreateRoleWithRevocationSQL(t, "web", testRole, revocationSQL, false),
-			testAccStepReadCreds(t, b, config.StorageView, "web", connURL),
+			testAccStepReadCreds(t, b, config.StorageView, "web", connString),
 		},
 	})
 }
@@ -174,12 +144,12 @@ func TestBackend_roleCrud(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource, connURL := prepareTestContainer(t, config.StorageView, b)
+	resource, connString := prepareTestContainer(t, config.StorageView, b)
 	if resource != nil {
 		defer cleanupTestContainer(t, resource)
 	}
 	connData := map[string]interface{}{
-		"connection_url": connURL,
+		"connection_string": connString,
 	}
 
 	logicaltest.Test(t, logicaltest.TestCase{
@@ -202,12 +172,12 @@ func TestBackend_renew_revoke(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource, connURL := prepareTestContainer(t, config.StorageView, b)
+	resource, connString := prepareTestContainer(t, config.StorageView, b)
 	if resource != nil {
 		defer cleanupTestContainer(t, resource)
 	}
 	connData := map[string]interface{}{
-		"connection_url": connURL,
+		"connection_string": connString,
 	}
 
 	req := &logical.Request{
@@ -265,7 +235,7 @@ func TestBackend_renew_revoke(t *testing.T) {
 	}
 
 	// Build a client and verify that the credentials work
-	_, _, link := orahlp.SplitDSN(connURL)
+	_, _, link := orahlp.SplitDSN(connString)
 
 	conn := fmt.Sprintf("%s/%s@%s", d.Username, d.Password, link)
 
@@ -276,6 +246,7 @@ func TestBackend_renew_revoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer db.Close()
 	err = db.Ping()
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +271,7 @@ func TestBackend_renew_revoke(t *testing.T) {
 	}
 	if resp != nil {
 		if resp.IsError() {
-			t.Fatal("Error on renew: %#v", *resp)
+			t.Fatalf("Error on renew: %#v", *resp)
 		}
 	}
 
@@ -319,8 +290,13 @@ func TestBackend_renew_revoke(t *testing.T) {
 	}
 	if resp != nil {
 		if resp.IsError() {
-			t.Fatal("Error on revoke: %#v", *resp)
+			t.Fatalf("Error on revoke: %#v", *resp)
 		}
+	}
+
+	err = db.Ping()
+	if err == nil {
+		t.Fatal("expected failure on existing connection after revocation")
 	}
 
 	// According to the database/sql specification, Open() is not guaranteed to connect
@@ -371,18 +347,6 @@ func testAccStepCreateRole(t *testing.T, name string, sql string, expectFail boo
 		Path:      path.Join("roles", name),
 		Data: map[string]interface{}{
 			"sql": sql,
-		},
-		ErrorOk: expectFail,
-	}
-}
-
-func testAccStepCreateRoleWithRevocationSQL(t *testing.T, name, sql, revocationSQL string, expectFail bool) logicaltest.TestStep {
-	return logicaltest.TestStep{
-		Operation: logical.UpdateOperation,
-		Path:      path.Join("roles", name),
-		Data: map[string]interface{}{
-			"sql":            sql,
-			"revocation_sql": revocationSQL,
 		},
 		ErrorOk: expectFail,
 	}
@@ -446,64 +410,4 @@ const testRole = `
 CREATE USER {{name}} IDENTIFIED BY {{password}};
 GRANT CONNECT TO {{name}};
 GRANT CREATE SESSION TO {{name}};
-`
-
-////const testReadOnlyRole = `
-////CREATE ROLE "{{name}}" WITH
-////  LOGIN
-////  PASSWORD '{{password}}'
-////  VALID UNTIL '{{expiration}}';
-////GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{name}}";
-////GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO "{{name}}";
-////`
-////
-////const testBlockStatementRole = `
-////DO $$
-////BEGIN
-////   IF NOT EXISTS (SELECT * FROM pg_catalog.pg_roles WHERE rolname='foo-role') THEN
-////      CREATE ROLE "foo-role";
-////      CREATE SCHEMA IF NOT EXISTS foo AUTHORIZATION "foo-role";
-////      ALTER ROLE "foo-role" SET search_path = foo;
-////      GRANT TEMPORARY ON DATABASE "postgres" TO "foo-role";
-////      GRANT ALL PRIVILEGES ON SCHEMA foo TO "foo-role";
-////      GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA foo TO "foo-role";
-////      GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA foo TO "foo-role";
-////      GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA foo TO "foo-role";
-////   END IF;
-////END
-////$$
-////
-////CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
-////GRANT "foo-role" TO "{{name}}";
-////ALTER ROLE "{{name}}" SET search_path = foo;
-////GRANT CONNECT ON DATABASE "postgres" TO "{{name}}";
-////`
-////
-////var testBlockStatementRoleSlice = []string{
-////	`
-////DO $$
-////BEGIN
-////   IF NOT EXISTS (SELECT * FROM pg_catalog.pg_roles WHERE rolname='foo-role') THEN
-////      CREATE ROLE "foo-role";
-////      CREATE SCHEMA IF NOT EXISTS foo AUTHORIZATION "foo-role";
-////      ALTER ROLE "foo-role" SET search_path = foo;
-////      GRANT TEMPORARY ON DATABASE "postgres" TO "foo-role";
-////      GRANT ALL PRIVILEGES ON SCHEMA foo TO "foo-role";
-////      GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA foo TO "foo-role";
-////      GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA foo TO "foo-role";
-////      GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA foo TO "foo-role";
-////   END IF;
-////END
-////$$
-////`,
-////	`CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';`,
-////	`GRANT "foo-role" TO "{{name}}";`,
-////	`ALTER ROLE "{{name}}" SET search_path = foo;`,
-////	`GRANT CONNECT ON DATABASE "postgres" TO "{{name}}";`,
-////}
-
-const revocationSQL = `
-REVOKE CONNECT FROM {{name}};
-REVOKE CREATE SESSION FROM {{name}};
-DROP USER {{name}};
 `

@@ -121,9 +121,6 @@ func (b *backend) pathRoleCreateRead(
 		}
 
 		b.logger.Trace("oracle/pathRoleCreateRead: preparing statement")
-		b.logger.Trace("foo", "Query", query)
-		b.logger.Trace("foo", "name", username)
-		b.logger.Trace("foo", "password", password)
 		stmt, err := tx.Prepare(Query(query, map[string]string{
 			"name":     username,
 			"password": password,

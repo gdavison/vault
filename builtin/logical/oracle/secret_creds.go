@@ -12,13 +12,15 @@ import (
 
 const SecretCredsType = "creds"
 
-const defaultRevocationSQL = `
+const revocationSQL = `
 REVOKE CONNECT FROM {{name}};
 REVOKE CREATE SESSION FROM {{name}};
 DROP USER {{name}};
 `
 
-const sessionSQL = `SELECT sid, serial#, username FROM v$session WHERE username = UPPER('{{name}}')`
+const sessionQuerySQL = `SELECT sid, serial#, username FROM v$session WHERE username = UPPER('{{name}}')`
+
+const sessionKillSQL = `ALTER SYSTEM KILL SESSION '%d,%d' IMMEDIATE`
 
 func secretCreds(b *backend) *framework.Secret {
 	return &framework.Secret{
@@ -66,32 +68,7 @@ func (b *backend) secretCredsRevoke(
 
 	var resp *logical.Response
 
-	roleName := ""
-	roleNameRaw, ok := req.Secret.InternalData["role"]
-	if ok {
-		roleName = roleNameRaw.(string)
-	}
-
 	var err error
-
-	var role *roleEntry
-	if roleName != "" {
-		role, err = b.Role(req.Storage, roleName)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	revocationSQL := defaultRevocationSQL
-
-	if role != nil && role.RevocationSQL != "" {
-		revocationSQL = role.RevocationSQL
-	} else {
-		if resp == nil {
-			resp = &logical.Response{}
-		}
-		resp.AddWarning(fmt.Sprintf("Role %q cannot be found. Using default SQL for revoking user.", roleName))
-	}
 
 	// Get our connection
 	db, err := b.DB(req.Storage)
@@ -100,7 +77,7 @@ func (b *backend) secretCredsRevoke(
 	}
 
 	// Disconnect the session
-	disconnectStmt, err := db.Prepare(Query(sessionSQL, map[string]string{
+	disconnectStmt, err := db.Prepare(Query(sessionQuerySQL, map[string]string{
 		"name": username,
 	}))
 	if err != nil {
@@ -118,7 +95,7 @@ func (b *backend) secretCredsRevoke(
 			if err != nil {
 				return nil, err
 			}
-			killStatement := fmt.Sprintf("ALTER SYSTEM KILL SESSION '%d,%d' IMMEDIATE", sessionId, serialNumber)
+			killStatement := fmt.Sprintf(sessionKillSQL, sessionId, serialNumber)
 			_, err = db.Exec(killStatement)
 			if err != nil {
 				return nil, err

@@ -14,14 +14,9 @@ func pathConfigConnection(b *backend) *framework.Path {
 	return &framework.Path{
 		Pattern: "config/connection",
 		Fields: map[string]*framework.FieldSchema{
-			"connection_url": &framework.FieldSchema{
+			"connection_string": &framework.FieldSchema{
 				Type:        framework.TypeString,
 				Description: "DB connection string",
-			},
-			"value": &framework.FieldSchema{
-				Type: framework.TypeString,
-				Description: `DB connection string. Use 'connection_url' instead.
-This will be deprecated.`,
 			},
 			"max_open_connections": &framework.FieldSchema{
 				Type: framework.TypeInt,
@@ -40,7 +35,7 @@ reduced to the same size.`,
 			"verify_connection": &framework.FieldSchema{
 				Type:        framework.TypeBool,
 				Default:     true,
-				Description: `If set, connection_url is verified by actually connecting to the database`,
+				Description: `If set, connection_string is verified by actually connecting to the database`,
 			},
 		},
 
@@ -75,14 +70,9 @@ func (b *backend) pathConnectionRead(req *logical.Request, data *framework.Field
 
 func (b *backend) pathConnectionWrite(
 	req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	connValue := data.Get("value").(string)
-	connURL := data.Get("connection_url").(string)
-	if connURL == "" {
-		if connValue == "" {
-			return logical.ErrorResponse("the connection_url parameter must be supplied"), nil
-		} else {
-			connURL = connValue
-		}
+	connString := data.Get("connection_string").(string)
+	if connString == "" {
+		return logical.ErrorResponse("the connection_string parameter must be supplied"), nil
 	}
 
 	maxOpenConns := data.Get("max_open_connections").(int)
@@ -98,11 +88,11 @@ func (b *backend) pathConnectionWrite(
 		maxIdleConns = maxOpenConns
 	}
 
-	// Don't check the connection_url if verification is disabled
+	// Don't check the connection_string if verification is disabled
 	verifyConnection := data.Get("verify_connection").(bool)
 	if verifyConnection {
 		// Verify the string
-		db, err := sql.Open("oci8", connURL)
+		db, err := sql.Open("oci8", connString)
 		if err != nil {
 			return logical.ErrorResponse(fmt.Sprintf(
 				"Error validating connection info: %s", err)), nil
@@ -116,8 +106,7 @@ func (b *backend) pathConnectionWrite(
 
 	// Store it
 	entry, err := logical.StorageEntryJSON("config/connection", connectionConfig{
-		ConnectionString:   connValue,
-		ConnectionURL:      connURL,
+		ConnectionString:   connString,
 		MaxOpenConnections: maxOpenConns,
 		MaxIdleConnections: maxIdleConns,
 	})
@@ -138,9 +127,7 @@ func (b *backend) pathConnectionWrite(
 }
 
 type connectionConfig struct {
-	ConnectionURL string `json:"connection_url" structs:"connection_url" mapstructure:"connection_url"`
-	// Deprecate "value" in coming releases
-	ConnectionString   string `json:"value" structs:"value" mapstructure:"value"`
+	ConnectionString   string `json:"connection_string" structs:"connection_string" mapstructure:"connection_string"`
 	MaxOpenConnections int    `json:"max_open_connections" structs:"max_open_connections" mapstructure:"max_open_connections"`
 	MaxIdleConnections int    `json:"max_idle_connections" structs:"max_idle_connections" mapstructure:"max_idle_connections"`
 }
@@ -149,14 +136,12 @@ const pathConfigConnectionHelpSyn = `
 Configure the connection string to talk to Oracle.
 `
 
-///// Does an Oracle DSN have parameters?
 const pathConfigConnectionHelpDesc = `
 This path configures the connection string used to connect to Oracle. The value
 of the string is a Data Source Name (DSN). An example is using
 "username/password@address:port/dbname?param=value"
 
-The URL looks like:
-"postgresql://user:pass@host:port/dbname"
-
 When configuring the connection string, the backend will verify its validity.
+If the database is not available when setting the connection URL, set the
+"verify_connection" option to false.
 `

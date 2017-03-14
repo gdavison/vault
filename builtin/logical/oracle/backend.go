@@ -33,6 +33,8 @@ func Backend(conf *logical.BackendConfig) *backend {
 			secretCreds(&b),
 		},
 
+		Invalidate: b.invalidate,
+
 		Clean: b.ResetDB,
 	}
 
@@ -82,12 +84,7 @@ func (b *backend) DB(s logical.Storage) (*sql.DB, error) {
 		return nil, err
 	}
 
-	conn := connConfig.ConnectionURL
-	if len(conn) == 0 {
-		conn = connConfig.ConnectionString
-	}
-
-	b.db, err = sql.Open("oci8", conn)
+	b.db, err = sql.Open("oci8", connConfig.ConnectionString)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +110,13 @@ func (b *backend) ResetDB() {
 	}
 
 	b.db = nil
+}
+
+func (b *backend) invalidate(key string) {
+	switch key {
+	case "config/connection":
+		b.ResetDB()
+	}
 }
 
 // Lease returns the lease information
