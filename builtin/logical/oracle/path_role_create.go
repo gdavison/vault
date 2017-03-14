@@ -1,6 +1,8 @@
 package oracle
 
 import (
+	"bufio"
+	"crypto/rand"
 	"fmt"
 	"strings"
 
@@ -12,7 +14,7 @@ import (
 )
 
 const oracleUsernameLength = 30
-const oraclePasswordLength = oracleUsernameLength
+const oraclePasswordLength = 30
 const displayNameLimit = 10
 
 func pathRoleCreate(b *backend) *framework.Path {
@@ -70,34 +72,15 @@ func (b *backend) pathRoleCreateRead(
 	if err != nil {
 		return nil, err
 	}
-	username := fmt.Sprintf("%s-%s", displayName, userUUID)
+	username := fmt.Sprintf("%s_%s", displayName, strings.Replace(userUUID, "-", "_", -1))
 	if len(username) > oracleUsernameLength {
 		username = username[:oracleUsernameLength]
 	}
-	username = strings.Replace(username, "-", "_", -1)
-	b.logger.Trace("foo", "username: ", username, " len: ", len(username))
-	// Oracle passwords: https://asktom.oracle.com/pls/apex/f?p=100:11:0::::P11_QUESTION_ID:595223460734
-	// o Passwords must be from 1 to 30 characters long.
-	// o Passwords cannot contain quotation marks.
-	// o Passwords are not case sensitive.
-	// o A Password must begin with an alphabetic character.
-	// o Passwords can contain only alphanumeric characters and the
-	// underscore (_), dollar sign ($), and pound sign (#). Oracle
-	// strongly discourages you from using $ and #..
-	// o A Password cannot be an Oracle reserved word (eg: SELECT).
-	password, err := uuid.GenerateUUID()
+
+	password, err := oraclePasswordRandomString()
 	if err != nil {
 		return nil, err
 	}
-	if len(password) > oraclePasswordLength {
-		password = password[:oraclePasswordLength]
-	}
-	if password[0] < 'a' || password[0] > 'f' {
-		foo := []byte(password)
-		foo[0] = 'X'
-		password = string(foo)
-	}
-	password = strings.Replace(password, "-", "_", -1)
 
 	// Get our handle
 	b.logger.Trace("oracle/pathRoleCreateRead: getting database handle")
@@ -158,6 +141,51 @@ func (b *backend) pathRoleCreateRead(
 	})
 	resp.Secret.TTL = lease.Lease
 	return resp, nil
+}
+
+// Oracle passwords: https://asktom.oracle.com/pls/apex/f?p=100:11:0::::P11_QUESTION_ID:595223460734
+// o Passwords must be from 1 to 30 characters long.
+// o Passwords cannot contain quotation marks.
+// o Passwords are not case sensitive.
+// o A Password must begin with an alphabetic character.
+// o Passwords can contain only alphanumeric characters and the
+// underscore (_), dollar sign ($), and pound sign (#). Oracle
+// strongly discourages you from using $ and #..
+// o A Password cannot be an Oracle reserved word (eg: SELECT).
+const (
+	firstLetterBytes   = "abcdefghijklmnopqrstuvwxyz" // 26 possibilities
+	firstLetterIdxBits = 5
+	firstLetterIdxMask = 1<<firstLetterIdxBits - 1
+	letterBytes        = "abcdefghijklmnopqrstuvwxyz_1234567890" // 37 possibilities
+	letterIdxBits      = 6
+	letterIdxMask      = 1<<letterIdxBits - 1
+)
+
+func oraclePasswordRandomString() (string, error) {
+	result := make([]byte, oraclePasswordLength)
+	randomByteReader := bufio.NewReader(rand.Reader)
+	characterIndex := 0
+	for characterIndex < 1 {
+		aByte, err := randomByteReader.ReadByte()
+		if err != nil {
+			return "", err
+		}
+		if idx := int(aByte & firstLetterIdxMask); idx < len(firstLetterBytes) {
+			result[characterIndex] = firstLetterBytes[idx]
+			characterIndex++
+		}
+	}
+	for characterIndex < oraclePasswordLength {
+		aByte, err := randomByteReader.ReadByte()
+		if err != nil {
+			return "", err
+		}
+		if idx := int(aByte & letterIdxMask); idx < len(letterBytes) {
+			result[characterIndex] = letterBytes[idx]
+			characterIndex++
+		}
+	}
+	return string(result), nil
 }
 
 const pathRoleCreateReadHelpSyn = `
