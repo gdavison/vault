@@ -11,6 +11,10 @@ import (
 	_ "github.com/mattn/go-oci8"
 )
 
+const oracleUsernameLength = 30
+const oraclePasswordLength = oracleUsernameLength
+const displayNameLimit = 10
+
 func pathRoleCreate(b *backend) *framework.Path {
 	return &framework.Path{
 		Pattern: "creds/" + framework.GenericNameRegex("name"),
@@ -57,18 +61,18 @@ func (b *backend) pathRoleCreateRead(
 		lease = &configLease{}
 	}
 
-	// Generate the username, password and expiration. PG limits user to 63 characters
+	// Generate the username, password and expiration. Oracle limits user to 30 characters
 	displayName := req.DisplayName
-	if len(displayName) > 26 {
-		displayName = displayName[:26]
+	if len(displayName) > displayNameLimit {
+		displayName = displayName[:displayNameLimit]
 	}
 	userUUID, err := uuid.GenerateUUID()
 	if err != nil {
 		return nil, err
 	}
 	username := fmt.Sprintf("%s-%s", displayName, userUUID)
-	if len(username) > 30 {
-		username = username[:30]
+	if len(username) > oracleUsernameLength {
+		username = username[:oracleUsernameLength]
 	}
 	username = strings.Replace(username, "-", "_", -1)
 	b.logger.Trace("foo", "username: ", username, " len: ", len(username))
@@ -85,8 +89,8 @@ func (b *backend) pathRoleCreateRead(
 	if err != nil {
 		return nil, err
 	}
-	if len(password) > 30 {
-		password = password[:30]
+	if len(password) > oraclePasswordLength {
+		password = password[:oraclePasswordLength]
 	}
 	if password[0] < 'a' || password[0] > 'f' {
 		foo := []byte(password)
